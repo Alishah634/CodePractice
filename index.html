@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Code Typing Practice</title>
+  <link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+  <header>
+    <div class="row">
+      <h1>⌨ CodeType</h1>
+      <select id="snippet" title="Snippet"></select>
+      <select id="lang" title="Syntax highlighting"></select>
+      <button id="paste" title="Paste code to practice">+ Paste</button>
+      <button id="open" title="Open code files (or drag & drop them anywhere)">Open file…</button>
+      <input id="file" type="file" multiple hidden>
+      <button id="delete-snippet" title="Delete this snippet">Delete</button>
+      <span class="spacer"></span>
+      <button id="theme" title="Toggle light/dark">◐</button>
+    </div>
+    <div class="row">
+      <label class="range">Lines
+        <input id="range-from" type="number" min="1" value="1"> –
+        <input id="range-to" type="number" min="1" value="1">
+        <span id="range-total"></span>
+        <button id="range-all" title="Practice the whole file">All</button>
+      </label>
+      <label title="Vim keybindings"><input id="opt-vim" type="checkbox"> Vim</label>
+      <label title="Show the rest of the current line as faint text (Alt+G)"><input id="opt-ghost" type="checkbox"> Ghost text</label>
+      <label title="Hide the reference code — type from memory (Alt+B)"><input id="opt-blind" type="checkbox"> Blind</label>
+      <label title="Trailing whitespace doesn't count as an error"><input id="opt-trailing" type="checkbox"> Ignore trailing ws</label>
+      <label title="Indentation doesn't count as an error"><input id="opt-indent" type="checkbox"> Ignore indent</label>
+      <label title="What happens to indentation when you press Enter / o / O">Auto-indent
+        <select id="opt-indent-mode">
+          <option value="keep">keep previous</option>
+          <option value="smart">smart</option>
+          <option value="none">none</option>
+        </select>
+      </label>
+      <span class="spacer"></span>
+      <button id="restart" title="Clear and start over (Alt+R, or :restart in vim)">↻ Restart</button>
+    </div>
+    <div class="stats">
+      <span><b id="stat-time">0:00</b> time</span>
+      <span><b id="stat-wpm">0</b> wpm</span>
+      <span><b id="stat-lines">0/0</b> lines</span>
+      <span><b id="stat-keys">0</b> keys</span>
+      <span><b id="stat-mistakes">0</b> mistakes</span>
+    </div>
+    <div class="progress"><div id="progress"></div></div>
+  </header>
+
+  <main>
+    <section class="pane target-pane">
+      <div class="pane-title">Reference</div>
+      <div id="target" class="editor"></div>
+      <div class="blind-cover">Blind mode — type it from memory.<br><small>Errors still show in red. Alt+B to peek.</small></div>
+    </section>
+    <section class="pane">
+      <div class="pane-title">Type here</div>
+      <div id="typed" class="editor"></div>
+    </section>
+  </main>
+
+  <dialog id="paste-dialog">
+    <form id="paste-form">
+      <h2>Add code to practice</h2>
+      <input id="paste-name" placeholder="File name, e.g. quicksort.py (sets the language)">
+      <textarea id="paste-code" spellcheck="false" placeholder="Paste your code here…"></textarea>
+      <div class="actions">
+        <button type="button" id="paste-cancel">Cancel</button>
+        <button type="submit" class="primary">Add &amp; practice</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="results">
+    <h2>Done! 🎉</h2>
+    <div class="results-grid">
+      <div><b id="r-time"></b><span>time</span></div>
+      <div><b id="r-wpm"></b><span>wpm</span></div>
+      <div><b id="r-keys"></b><span>keystrokes</span></div>
+      <div><b id="r-kpc"></b><span>keys / char</span></div>
+      <div><b id="r-mistakes"></b><span>mistakes</span></div>
+    </div>
+    <p id="r-best"></p>
+    <p class="muted">Runs of this section: <span id="r-runs"></span></p>
+    <div class="actions">
+      <button id="r-close">Close</button>
+      <button id="r-again" class="primary">Go again</button>
+    </div>
+  </dialog>
+
+  <div class="drop-hint">Drop files to add them</div>
+  <script src="dist/app.js"></script>
+</body>
+</html>
