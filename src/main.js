@@ -6,6 +6,10 @@ import {
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, insertNewline } from "@codemirror/commands";
 import {
+  autocompletion, closeBrackets, closeBracketsKeymap, completionStatus,
+  acceptCompletion, startCompletion, closeCompletion, moveCompletionSelection,
+} from "@codemirror/autocomplete";
+import {
   syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput,
   indentService, indentUnit,
 } from "@codemirror/language";
@@ -53,6 +57,66 @@ const EXT_TO_LANG = {
   json: "json", sql: "sql",
 };
 
+// Keywords for the languages whose CodeMirror package ships no completion
+// source of its own (python/javascript/go/html/css/sql bring their own).
+const KEYWORDS = {
+  cpp: `alignas alignof auto bool break case catch char class const constexpr const_cast continue decltype
+    default delete do double dynamic_cast else enum explicit export extern false float for friend goto if
+    inline int long mutable namespace new noexcept nullptr operator private protected public register
+    reinterpret_cast return short signed sizeof static static_assert static_cast struct switch template this
+    throw true try typedef typeid typename union unsigned using virtual void volatile while
+    #include #define #ifndef #endif #pragma std::string std::vector std::cout std::endl std::map`,
+  java: `abstract assert boolean break byte case catch char class const continue default do double else enum
+    extends final finally float for if implements import instanceof int interface long native new package
+    private protected public return short static strictfp super switch synchronized this throw throws
+    transient try void volatile while true false null var record sealed String System.out.println ArrayList
+    HashMap List Map Optional Override`,
+  rust: `as async await break const continue crate dyn else enum extern false fn for if impl in let loop match
+    mod move mut pub ref return self Self static struct super trait true type unsafe use where while
+    String Vec Option Some None Result Ok Err Box Rc Arc HashMap println! vec! derive clone unwrap expect`,
+  json: "true false null",
+};
+
+/**
+ * Identifiers worth suggesting, pulled out of the reference snippet, ranked by
+ * how often they appear. Cached, since this runs on every keystroke.
+ */
+let identifierCache = { text: null, options: [] };
+function snippetIdentifiers() {
+  if (identifierCache.text === app.targetText) return identifierCache.options;
+  const freq = new Map();
+  for (const word of app.targetText.match(/[A-Za-z_$][\w$]*/g) || []) {
+    if (word.length < 3) continue;
+    freq.set(word, (freq.get(word) || 0) + 1);
+  }
+  const options = [...freq].map(([label, n]) => ({
+    label,
+    type: "variable",
+    detail: "snippet",
+    // Frequent identifiers first; CodeMirror still filters by what you typed.
+    boost: Math.min(n, 5),
+  }));
+  identifierCache = { text: app.targetText, options };
+  return options;
+}
+
+/**
+ * Completion source backed by the reference snippet plus whatever is already
+ * typed. This is what makes autocomplete genuinely useful here: the words you
+ * need are, by definition, the words in the code you're copying.
+ */
+function snippetCompletionSource(context) {
+  const word = context.matchBefore(/[\w$#]+/);
+  if (!word || (word.from === word.to && !context.explicit)) return null;
+
+  // Completing a word to itself does nothing, so don't offer it.
+  const options = snippetIdentifiers().filter((o) => o.label !== word.text);
+  for (const kw of (KEYWORDS[app.snippet?.lang] || "").split(/\s+/)) {
+    if (kw && kw !== word.text) options.push({ label: kw, type: "keyword" });
+  }
+  return { from: word.from, options, validFor: /^[\w$#]*$/ };
+}
+
 function langFromName(name) {
   const m = /\.([^.]+)$/.exec(name || "");
   return (m && EXT_TO_LANG[m[1].toLowerCase()]) || "plain";
@@ -75,6 +139,8 @@ const store = {
 
 const DEFAULT_SETTINGS = {
   vim: true,
+  autocomplete: true,
+  brackets: true,
   ghost: true,
   blind: false,
   ignoreTrailing: true,
@@ -155,11 +221,18 @@ function indentLen(line) {
   return settings.ignoreIndent ? /^\s*/.exec(line)[0].length : 0;
 }
 
+// Characters an editor inserts for you ahead of the cursor (auto-closed
+// brackets and quotes). On the line you're on, these are pending, not wrong.
+const AUTO_TAIL = /^[)\]}'"`>]*\s*$/;
+
 /**
  * Compare the typed document against the target, line by line.
  * Returns per-line status: "ok" | "partial" (correct prefix) | "error" | "empty".
+ *
+ * The line the cursor is on is judged only up to the cursor, so an auto-closed
+ * bracket sitting to the right of it doesn't light the line up red.
  */
-function compare(typedLines, targetLines) {
+function compare(typedLines, targetLines, cur) {
   const lines = [];
   let correctChars = 0;
   let okCount = 0;
@@ -168,7 +241,7 @@ function compare(typedLines, targetLines) {
     const t = targetLines[i];
     if (u === undefined) { lines.push({ status: "empty" }); continue; }
     if (t === undefined) {
-      lines.push(u.trim() === "" ? { status: "empty" } : { status: "error", col: 0 });
+      lines.push(u.trim() === "" ? { status: "empty" } : { status: "error", col: 0, tcol: 0 });
       continue;
     }
     const nu = normLine(u), nt = normLine(t);
@@ -178,16 +251,22 @@ function compare(typedLines, targetLines) {
       correctChars += nt.length;
       continue;
     }
+    const onCursorLine = cur && cur.line === i;
+    const judged = onCursorLine ? u.slice(0, cur.col) : u;
+    const tail = onCursorLine ? u.slice(cur.col) : "";
     // Find first differing column (in the raw typed line).
     const offU = indentLen(u), offT = indentLen(t);
     let k = 0;
-    while (offU + k < u.length && offT + k < t.length && u[offU + k] === t[offT + k]) k++;
+    while (offU + k < judged.length && offT + k < t.length && u[offU + k] === t[offT + k]) k++;
     correctChars += k;
-    if (offU + k >= u.replace(/\s+$/, "").length && (settings.ignoreTrailing || offU + k >= u.length)) {
+    const judgedEnd = settings.ignoreTrailing ? judged.replace(/\s+$/, "").length : judged.length;
+    if (offU + k >= judgedEnd && AUTO_TAIL.test(tail)) {
       // Everything typed so far is a correct prefix of the target line.
-      lines.push(u === "" ? { status: "empty" } : { status: "partial", col: offU + k, tcol: offT + k });
+      lines.push(u === "" ? { status: "empty", col: 0, tcol: offT }
+                          : { status: "partial", col: offU + k, tcol: offT + k });
     } else {
-      lines.push({ status: "error", col: offU + k, tcol: offT + k });
+      const col = offU + k >= judgedEnd ? cur.col : offU + k;
+      lines.push({ status: "error", col, tcol: offT + k });
     }
   }
   const finished = okCount === targetLines.length &&
@@ -257,6 +336,8 @@ const app = {
 
 const themeComp = new Compartment();
 const vimComp = new Compartment();
+const completeComp = new Compartment();
+const bracketComp = new Compartment();
 const langComp = new Compartment();
 const tLangComp = new Compartment();
 const indentComp = new Compartment();
@@ -285,6 +366,35 @@ function detectIndentUnit(text) {
   return " ".repeat(min >= 2 && min <= 8 ? min : 4);
 }
 
+function completionExt() {
+  if (!settings.autocomplete) return [];
+  return [
+    autocompletion({
+      // Enter stays a newline and Escape is vim's, so bind acceptance to Tab.
+      defaultKeymap: false,
+      activateOnTyping: true,
+      icons: true,
+      tooltipClass: () => "cm-complete-tip",
+    }),
+    // Suggest identifiers from the reference snippet in every language, on top
+    // of whatever completion the language package provides.
+    EditorState.languageData.of(() => [{ autocomplete: snippetCompletionSource }]),
+    Prec.highest(keymap.of([
+      { key: "Ctrl-Space", run: startCompletion },
+      { key: "ArrowDown", run: moveCompletionSelection(true) },
+      { key: "ArrowUp", run: moveCompletionSelection(false) },
+    ])),
+    // Escape closes the popup *and* falls through, so vim still leaves insert
+    // mode on the same keypress.
+    Prec.highest(EditorView.domEventHandlers({
+      keydown(e, view) {
+        if (e.key === "Escape" && completionStatus(view.state)) closeCompletion(view);
+        return false;
+      },
+    })),
+  ];
+}
+
 function indentExt() {
   const unit = detectIndentUnit(app.targetText);
   const exts = [indentUnit.of(unit)];
@@ -295,10 +405,12 @@ function indentExt() {
   } else {
     exts.push(indentOnInput());
   }
-  // Tab inserts one indent unit (also works in vim insert mode).
+  // Tab accepts the open completion, otherwise inserts one indent unit
+  // (also works in vim insert mode).
   exts.push(Prec.high(keymap.of([{
     key: "Tab",
     run: (view) => {
+      if (completionStatus(view.state) && acceptCompletion(view)) return true;
       view.dispatch(view.state.replaceSelection(unit));
       return true;
     },
@@ -333,7 +445,9 @@ const typedView = new EditorView({
       bracketMatching(),
       highlightActiveLine(),
       indentComp.of([]),
-      keymap.of([...defaultKeymap, ...historyKeymap]),
+      completeComp.of([]),
+      bracketComp.of([]),
+      keymap.of([...defaultKeymap, ...historyKeymap, ...closeBracketsKeymap]),
       langComp.of([]),
       themeComp.of(themeExt()),
       baseTheme,
@@ -379,13 +493,21 @@ function typedLinesOf(state) {
   return state.doc.toString().split("\n");
 }
 
+/** Cursor position as {line, col}, both 0-based, for the comparison. */
+function cursorOf(state) {
+  const head = state.selection.main.head;
+  const line = state.doc.lineAt(head);
+  return { line: line.number - 1, col: head - line.from };
+}
+
 function onTypedChange() {
   if (app.endTime) return;
   if (!app.startTime && typedView.state.doc.length > 0) {
     app.startTime = performance.now();
     startTimer();
   }
-  const cmp = compare(typedLinesOf(typedView.state), app.targetLines);
+  const state = typedView.state;
+  const cmp = compare(typedLinesOf(state), app.targetLines, cursorOf(state));
   const errorLines = new Set();
   cmp.lines.forEach((l, i) => { if (l.status === "error") errorLines.add(i); });
   for (const i of errorLines) if (!app.prevErrorLines.has(i)) app.mistakes++;
@@ -397,10 +519,11 @@ function refreshDecorations() {
   const state = typedView.state;
   const doc = state.doc;
   const typedLines = typedLinesOf(state);
-  const cmp = compare(typedLines, app.targetLines);
   const head = state.selection.main.head;
   const curLine = doc.lineAt(head);
   const curIdx = curLine.number - 1;
+  const curCol = head - curLine.from;
+  const cmp = compare(typedLines, app.targetLines, { line: curIdx, col: curCol });
 
   // Typed editor decorations.
   const b = new RangeSetBuilder();
@@ -414,14 +537,17 @@ function refreshDecorations() {
       const from = line.from + info.col;
       if (from < line.to) b.add(from, line.to, markError);
     }
-    // Ghost text: the rest of the target line, shown at the end of the line
-    // the cursor is on, when everything typed so far is correct.
+    // Ghost text: the rest of the target line, shown at the cursor when
+    // everything typed so far is correct. Anything the editor auto-closed to
+    // the right of the cursor is trimmed off the end so it isn't shown twice.
     if (settings.ghost && !settings.blind && i === curIdx && !app.endTime &&
-        (info.status === "partial" || info.status === "empty") && head === line.to) {
+        (info.status === "partial" || info.status === "empty")) {
       const t = app.targetLines[i];
-      if (t !== undefined) {
-        const rest = info.status === "partial" ? t.slice(info.tcol) : t;
-        if (rest) b.add(line.to, line.to, Decoration.widget({ widget: new GhostWidget(rest), side: 1 }));
+      const tail = typedLines[i].slice(curCol);
+      if (t !== undefined && AUTO_TAIL.test(tail)) {
+        let rest = t.slice(info.tcol || 0);
+        if (tail && rest.endsWith(tail)) rest = rest.slice(0, rest.length - tail.length);
+        if (rest) b.add(head, head, Decoration.widget({ widget: new GhostWidget(rest), side: 1 }));
       }
     }
   }
@@ -585,6 +711,8 @@ function restart() {
     effects: [
       langComp.reconfigure(LANGS[$("#lang").value].ext()),
       indentComp.reconfigure(indentExt()),
+      completeComp.reconfigure(completionExt()),
+      bracketComp.reconfigure(settings.brackets ? closeBrackets() : []),
       gutterComp.reconfigure(lineNumberExt()),
     ],
   });
@@ -629,6 +757,8 @@ function addUserSnippet(name, code) {
 
 function applySettingsToUI() {
   $("#opt-vim").checked = settings.vim;
+  $("#opt-complete").checked = settings.autocomplete;
+  $("#opt-brackets").checked = settings.brackets;
   $("#opt-ghost").checked = settings.ghost;
   $("#opt-blind").checked = settings.blind;
   $("#opt-trailing").checked = settings.ignoreTrailing;
@@ -651,6 +781,12 @@ function bindSetting(id, key, onChange) {
 
 bindSetting("#opt-vim", "vim", () => {
   typedView.dispatch({ effects: vimComp.reconfigure(settings.vim ? vim({ status: true }) : []) });
+});
+bindSetting("#opt-complete", "autocomplete", () => {
+  typedView.dispatch({ effects: completeComp.reconfigure(completionExt()) });
+});
+bindSetting("#opt-brackets", "brackets", () => {
+  typedView.dispatch({ effects: bracketComp.reconfigure(settings.brackets ? closeBrackets() : []) });
 });
 bindSetting("#opt-ghost", "ghost");
 bindSetting("#opt-blind", "blind");
@@ -752,6 +888,7 @@ window.addEventListener("keydown", (e) => {
     if (e.code === "KeyR") { e.preventDefault(); restart(); }
     else if (e.code === "KeyB") { e.preventDefault(); $("#opt-blind").click(); }
     else if (e.code === "KeyG") { e.preventDefault(); $("#opt-ghost").click(); }
+    else if (e.code === "KeyA") { e.preventDefault(); $("#opt-complete").click(); }
   }
 });
 

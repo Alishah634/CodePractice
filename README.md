@@ -23,6 +23,16 @@ Ways to add code:
   normal, insert and visual modes, visual-block, `.` repeat, registers, macros,
   and ex commands such as `:s/foo/bar/g`. `:restart` starts over. Uncheck *Vim*
   to type without Vim keybindings.
+- **Autocomplete:** suggestions appear as you type. They come from the language
+  (Python, JavaScript/TypeScript, Go, HTML, CSS and SQL ship real ones) *and*
+  from the identifiers in the snippet you're copying, which is usually exactly
+  the word you want. C/C++, Java and Rust fall back to the snippet's identifiers
+  plus a keyword list. **Tab** accepts, **Ctrl-Space** opens it by hand, arrows
+  move, **Escape** closes it and leaves insert mode in one press.
+- **Auto-close brackets:** typing `(`, `[`, `{` or a quote inserts the closing
+  one; typing the closer yourself just moves over it. The line you're on is only
+  checked up to your cursor, so a pending `)` to the right never shows as an
+  error.
 - **Multiple cursors:** Ctrl/Cmd-click, or Alt-drag for a rectangular selection.
 - **Line range:** drill one part of a long file, for example lines 40–80.
 - **Ghost text:** the rest of the current line shows faintly ahead of the cursor.
@@ -34,7 +44,7 @@ Ways to add code:
   saved per snippet and line range, so you can see your personal best.
   Keys per character below 1.0 means your Vim tricks saved you keystrokes.
 
-Shortcuts: `Alt+R` restart · `Alt+B` blind · `Alt+G` ghost text.
+Shortcuts: `Alt+R` restart · `Alt+B` blind · `Alt+G` ghost text · `Alt+A` autocomplete.
 
 ## Practice in your real Vim
 
@@ -56,7 +66,7 @@ or set `VIMTYPE_EDITOR`.
 npm install
 npm run build     # bundles src/ + snippets/ into dist/app.js
 npm run watch     # rebuild on change
-npm test          # headless smoke test (Playwright)
+npm test          # headless smoke test (Playwright; needs Node 20+)
 ```
 
 `dist/app.js` is committed, so `index.html` works straight from a clone. A
