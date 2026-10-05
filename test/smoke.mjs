@@ -53,6 +53,12 @@ await page.fill("#range-to", "3");
 await page.locator("#range-to").dispatchEvent("change");
 await page.click("#edit-ref");
 assert(await page.locator("#save-ref").isVisible(), "edit mode shows Save");
+// Edit opens in vim insert mode: plain typing goes straight in.
+await page.keyboard.type("Zq");
+assert((await page.evaluate(() => window.codetype.targetView.state.doc.line(1).text)).startsWith("Zq"),
+  "edit starts in insert mode");
+await page.keyboard.press("Escape");
+await page.keyboard.type("u");
 await page.keyboard.press("Escape");
 await page.keyboard.type("gg0DiEDITED");
 await page.keyboard.press("Escape");

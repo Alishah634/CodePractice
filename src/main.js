@@ -14,7 +14,7 @@ import {
   indentService, indentUnit,
 } from "@codemirror/language";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { vim, Vim } from "@replit/codemirror-vim";
+import { vim, Vim, getCM } from "@replit/codemirror-vim";
 import { python } from "@codemirror/lang-python";
 import { javascript } from "@codemirror/lang-javascript";
 import { cpp } from "@codemirror/lang-cpp";
@@ -764,6 +764,8 @@ function updateEditButtons() {
   $("#revert-ref").hidden = editing || !app.snippet?.repo || app.snippet.code === app.snippet.original;
   document.body.classList.toggle("editing", editing);
   $("#ref-title").textContent = editing ? "Editing reference" : "Reference";
+  $("#edit-hint").hidden = !editing;
+  $("#edit-hint").textContent = settings.vim ? "Esc → normal mode · :w save · :q cancel" : "Ctrl+S save";
 }
 
 function startEditing() {
@@ -775,6 +777,9 @@ function startEditing() {
   });
   updateEditButtons();
   targetView.focus();
+  // Start in insert mode so you can just type; Esc gets you vim's normal mode.
+  const cm = settings.vim && getCM(targetView);
+  if (cm) Vim.handleKey(cm, "i", "user");
 }
 
 function stopEditing() {

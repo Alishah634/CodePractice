@@ -72,6 +72,7 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; ga
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
   padding: 3px 8px 3px 12px; border-bottom: 1px solid var(--border);
 }
+.edit-hint { text-transform: none; letter-spacing: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pane-actions { margin-left: auto; display: flex; gap: 6px; }
 .pane-actions button { font-size: 12px; padding: 1px 8px; text-transform: none; letter-spacing: 0; }
 body.editing .target-pane .pane-title { color: var(--accent); }
