@@ -55,7 +55,15 @@
 
   <main>
     <section class="pane target-pane">
-      <div class="pane-title">Reference</div>
+      <div class="pane-title">
+        <span id="ref-title">Reference</span>
+        <span class="pane-actions">
+          <button id="edit-ref" title="Edit the reference code (only the selected line range)">✎ Edit</button>
+          <button id="revert-ref" title="Undo your edits and restore the file from the repo" hidden>Revert to original</button>
+          <button id="cancel-ref" title="Discard changes (:q in vim)" hidden>Cancel</button>
+          <button id="save-ref" class="primary" title="Save changes (Ctrl+S, or :w in vim)" hidden>Save</button>
+        </span>
+      </div>
       <div id="target" class="editor"></div>
       <div class="blind-cover">Blind mode — type it from memory.<br><small>Errors still show in red. Alt+B to peek.</small></div>
     </section>

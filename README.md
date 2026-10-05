@@ -34,6 +34,12 @@ Ways to add code:
   checked up to your cursor, so a pending `)` to the right never shows as an
   error.
 - **Multiple cursors:** Ctrl/Cmd-click, or Alt-drag for a rectangular selection.
+- **Edit the reference:** click **✎ Edit** above the left pane to fix or
+  trim the code you're copying. Vim works there too. Save with **Save**,
+  `Ctrl+S` or `:w`, and discard with **Cancel** or `:q`. If you're practising
+  a line range, only that range is replaced. Edits to files from `snippets/`
+  are saved in your browser, not the file itself, and **Revert to original**
+  brings the repo version back.
 - **Line range:** drill one part of a long file, for example lines 40–80.
 - **Ghost text:** the rest of the current line shows faintly ahead of the cursor.
 - **Blind mode:** hides the reference so you type from memory. Errors still show.

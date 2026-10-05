@@ -191,6 +191,14 @@ if __name__ == "__main__":
 let userSnippets = store.get("snippets", []);
 const saveUserSnippets = () => store.set("snippets", userSnippets);
 
+// Edits made to repo snippets in the reference pane are kept in the browser as
+// overrides; the original stays around so it can be restored.
+for (const s of [...REPO_SNIPPETS, DEMO]) {
+  s.original = s.code;
+  const override = store.get("override:" + s.id, null);
+  if (override != null) s.code = override;
+}
+
 function allSnippets() {
   const repo = REPO_SNIPPETS.length ? REPO_SNIPPETS : [DEMO];
   return [...repo, ...userSnippets];
@@ -467,7 +475,27 @@ typedView.contentDOM.addEventListener("keydown", (e) => {
   app.keystrokes++;
 }, true);
 
-// Target (read-only) view --------------------------------------------------
+// Target (reference) view: read-only, unless you click Edit ------------------
+
+const tEditComp = new Compartment();
+const readOnlyExt = [EditorState.readOnly.of(true), EditorView.editable.of(false)];
+
+function targetEditExt() {
+  const unit = detectIndentUnit(app.targetText);
+  return [
+    settings.vim ? vim({ status: true }) : [],
+    history(),
+    drawSelection(),
+    highlightActiveLine(),
+    highlightActiveLineGutter(),
+    indentUnit.of(unit),
+    Prec.high(keymap.of([
+      { key: "Mod-s", run: () => { setTimeout(saveEdit); return true; } },
+      { key: "Tab", run: (view) => { view.dispatch(view.state.replaceSelection(unit)); return true; } },
+    ])),
+    keymap.of([...defaultKeymap, ...historyKeymap]),
+  ];
+}
 
 const targetView = new EditorView({
   parent: $("#target"),
@@ -476,8 +504,7 @@ const targetView = new EditorView({
     extensions: [
       tGutterComp.of(lineNumberExt()),
       highlightSpecialChars(),
-      EditorState.readOnly.of(true),
-      EditorView.editable.of(false),
+      tEditComp.of(readOnlyExt),
       tLangComp.of([]),
       themeComp.of(themeExt()),
       baseTheme,
@@ -552,6 +579,8 @@ function refreshDecorations() {
     }
   }
   typedView.dispatch({ effects: setTypedDecos.of(b.finish()) });
+
+  if (app.editing) { updateStats(cmp); return; }
 
   // Target view decorations: highlight the line/column you're on.
   const tdoc = targetView.state.doc;
@@ -663,6 +692,7 @@ function finish(cmp) {
 // Loading a snippet
 
 function loadSnippet(id, { keepRange = false } = {}) {
+  if (app.editing) stopEditing();
   const snip = findSnippet(id);
   app.snippet = snip;
   store.set("current", snip.id);
@@ -686,6 +716,7 @@ function loadSnippet(id, { keepRange = false } = {}) {
   $("#lang").value = snip.lang in LANGS ? snip.lang : "plain";
   $("#snippet").value = snip.id;
   $("#delete-snippet").disabled = !!snip.repo;
+  updateEditButtons();
 
   targetView.dispatch({
     changes: { from: 0, to: targetView.state.doc.length, insert: app.targetText },
@@ -722,6 +753,80 @@ function restart() {
   updateStats();
   typedView.focus();
 }
+
+// ---------------------------------------------------------------------------
+// Editing the reference
+
+function updateEditButtons() {
+  const editing = !!app.editing;
+  $("#edit-ref").hidden = editing;
+  $("#save-ref").hidden = $("#cancel-ref").hidden = !editing;
+  $("#revert-ref").hidden = editing || !app.snippet?.repo || app.snippet.code === app.snippet.original;
+  document.body.classList.toggle("editing", editing);
+  $("#ref-title").textContent = editing ? "Editing reference" : "Reference";
+}
+
+function startEditing() {
+  if (app.editing) return;
+  app.editing = true;
+  stopTimer();
+  targetView.dispatch({
+    effects: [tEditComp.reconfigure(targetEditExt()), setTargetDecos.of(Decoration.none)],
+  });
+  updateEditButtons();
+  targetView.focus();
+}
+
+function stopEditing() {
+  app.editing = false;
+  targetView.dispatch({ effects: tEditComp.reconfigure(readOnlyExt) });
+  updateEditButtons();
+}
+
+function cancelEdit() {
+  if (!app.editing) return;
+  stopEditing();
+  targetView.dispatch({ changes: { from: 0, to: targetView.state.doc.length, insert: app.targetText } });
+  if (app.startTime && !app.endTime) startTimer();
+  refreshDecorations();
+  typedView.focus();
+}
+
+/** Write the edited lines back into the snippet, replacing just the practised range. */
+function saveEdit() {
+  if (!app.editing) return;
+  const snip = app.snippet;
+  const edited = targetView.state.doc.toString().replace(/\r\n?/g, "\n");
+  const all = snip.code.replace(/\r\n?/g, "\n").split("\n");
+  const from = app.rangeStart;
+  const to = from + app.targetLines.length - 1;
+  const newLines = edited === "" ? [] : edited.split("\n");
+  const code = [...all.slice(0, from - 1), ...newLines, ...all.slice(to)].join("\n");
+  if (!code.trim()) {
+    alert("The snippet can't be empty. Use Delete to remove it instead.");
+    return;
+  }
+  snip.code = code;
+  if (snip.repo) store.set("override:" + snip.id, code === snip.original ? null : code);
+  else saveUserSnippets();
+  stopEditing();
+  $("#range-to").value = Math.max(from, from + newLines.length - 1);
+  loadSnippet(snip.id, { keepRange: true });
+}
+
+function revertSnippet() {
+  const snip = app.snippet;
+  if (!snip.repo || snip.code === snip.original) return;
+  if (!confirm(`Throw away your edits to "${snip.name}" and restore the original?`)) return;
+  snip.code = snip.original;
+  store.set("override:" + snip.id, null);
+  loadSnippet(snip.id, { keepRange: true });
+}
+
+$("#edit-ref").addEventListener("click", startEditing);
+$("#save-ref").addEventListener("click", saveEdit);
+$("#cancel-ref").addEventListener("click", cancelEdit);
+$("#revert-ref").addEventListener("click", revertSnippet);
 
 function renderSnippetList() {
   const sel = $("#snippet");
@@ -894,6 +999,14 @@ window.addEventListener("keydown", (e) => {
 
 // `:restart` (or `:re`) from vim's command line.
 Vim.defineEx("restart", "re", () => restart());
+// While editing the reference: `:w` saves, `:q` cancels, `:wq` / `:x` save.
+// Deferred, because saving removes vim from that editor and vim is still
+// finishing the command when these run.
+const later = (fn) => () => setTimeout(fn);
+Vim.defineEx("write", "w", later(saveEdit));
+Vim.defineEx("quit", "q", later(cancelEdit));
+Vim.defineEx("wq", "wq", later(saveEdit));
+Vim.defineEx("xit", "x", later(saveEdit));
 
 // ---------------------------------------------------------------------------
 // Init
@@ -909,4 +1022,4 @@ renderSnippetList();
 loadSnippet(store.get("current", allSnippets()[0].id));
 
 // Exposed for debugging / tests.
-window.codetype = { app, typedView, targetView, restart, loadSnippet };
+window.codetype = { app, typedView, targetView, restart, loadSnippet, startEditing, saveEdit };

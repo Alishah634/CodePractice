@@ -67,7 +67,15 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 
 main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); }
 .pane { position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); }
-.pane-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 4px 12px; border-bottom: 1px solid var(--border); }
+.pane-title {
+  display: flex; align-items: center; gap: 8px; min-height: 30px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+  padding: 3px 8px 3px 12px; border-bottom: 1px solid var(--border);
+}
+.pane-actions { margin-left: auto; display: flex; gap: 6px; }
+.pane-actions button { font-size: 12px; padding: 1px 8px; text-transform: none; letter-spacing: 0; }
+body.editing .target-pane .pane-title { color: var(--accent); }
+body.editing .target-pane #target { box-shadow: inset 0 0 0 2px var(--accent); }
 .editor { flex: 1; min-height: 0; overflow: hidden; font-size: 15px; }
 .editor .cm-editor { height: 100%; }
 .editor .cm-editor.cm-focused { outline: none; }
@@ -100,9 +108,9 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; ga
 
 /* Blind mode */
 .blind-cover { display: none; }
-body.blind .target-pane #target { visibility: hidden; }
-body.blind .blind-cover {
-  display: flex; position: absolute; inset: 30px 0 0; align-items: center; justify-content: center;
+body.blind:not(.editing) .target-pane #target { visibility: hidden; }
+body.blind:not(.editing) .blind-cover {
+  display: flex; position: absolute; inset: 31px 0 0; align-items: center; justify-content: center;
   text-align: center; color: var(--muted); padding: 24px;
 }
 
